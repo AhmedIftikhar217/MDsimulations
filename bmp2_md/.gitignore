@@ -1,0 +1,15 @@
+# Simulation output. Trajectories are large and are regenerable from the
+# config + seeds, which is the point of recording them.
+runs/
+*.dcd
+*.chk
+*.h5
+
+# SLURM logs
+logs/*.out
+logs/*.err
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/

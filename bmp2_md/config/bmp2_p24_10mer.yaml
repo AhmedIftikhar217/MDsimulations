@@ -1,0 +1,200 @@
+# =============================================================================
+# BMP-2 knuckle-epitope peptide (P24), 10 copies, explicit solvent
+# =============================================================================
+# This file is the SINGLE SOURCE OF TRUTH for the simulation.  Every script
+# reads it; nothing is hard-coded twice.  Change a number here and the whole
+# pipeline follows, including the box volume and the Methods paragraph.
+#
+# Every value below is either (a) a physical choice you must justify in the
+# paper, with the justification written next to it, or (b) a numerical setting
+# with a literature default.  There are no magic numbers.
+# =============================================================================
+
+metadata:
+  name: bmp2_p24_10mer
+  description: >
+    Ten copies of the BMP-2 knuckle epitope peptide (P24, residues 73-92 of
+    mature human BMP-2) in explicit water at 10 mM, to observe early-stage
+    peptide-peptide association.
+  # Bump this whenever a physical setting changes, so old and new runs
+  # can never be confused with one another.
+  version: 1
+
+# -----------------------------------------------------------------------------
+# Chemistry
+# -----------------------------------------------------------------------------
+system:
+  # P24 / knuckle epitope of mature human BMP-2 (UniProt P12643).
+  # VERIFY THIS AGAINST YOUR SOURCE PAPER before running production.
+  sequence: KIPKASSVPTELSAISTLYL
+  n_copies: 10
+
+  # 'capped'  -> ACE (acetyl) and NME (N-methylamide) neutral caps.
+  # 'free'    -> charged NH3+ / COO- termini.
+  # Capped is correct here: this peptide is an excised fragment of a larger
+  # protein, so charged termini are an artefact that does not exist in BMP-2
+  # and would dominate the electrostatics of a 20-mer.
+  termini: capped
+
+  forcefield:
+    # Verified present in OpenMM 8.6 (openmm/app/data/amber19/).
+    protein: amber19/protein.ff19SB.xml
+    water: amber19/opc.xml
+  # ff19SB was parameterised against OPC; pairing it with TIP3P re-introduces
+  # the backbone bias ff19SB was built to remove.  Keep these two together.
+  water_model: opc
+
+  salt:
+    # Physiological ionic strength.  Reported as background salt ON TOP OF the
+    # counter-ions needed to neutralise the +10 e solute charge.
+    concentration_mM: 150.0
+    positive_ion: Na+
+    negative_ion: Cl-
+    # Joung-Cheatham monovalent ion parameters ship with the amber19 set and
+    # are the matched choice for OPC.
+    neutralize: true
+
+# -----------------------------------------------------------------------------
+# Periodic box.  See scripts/00_box_size.py for the derivation.
+# -----------------------------------------------------------------------------
+box:
+  geometry: cubic
+  # THE number a reviewer will check against your experiment.
+  peptide_concentration_mM: 10.0
+  nonbonded_cutoff_nm: 1.0
+  # Solvent padding held between periodic images of the solute, on top of the
+  # cutoff.  0.5 nm is ~2 water shells.
+  solvent_buffer_nm: 0.5
+  # Worst-case solute dimension used for the minimum-image check.
+  # 'sheet' = all 10 copies in one fully extended beta ribbon, the largest
+  # object this many copies can physically form.  Conservative on purpose.
+  aggregate_scenario: sheet
+
+  # --- density pre-compensation ---------------------------------------------
+  # OpenMM's addSolvent tiles a pre-equilibrated water box and deletes clashes,
+  # which leaves the system ~3% BELOW bulk density (measured: 961 vs 993
+  # kg/m^3).  Under NPT the box then compresses to reach the correct density,
+  # shrinking the volume and pushing the peptide concentration ~3% ABOVE the
+  # target you designed for.  A 10.0 mM design silently becomes 10.3 mM.
+  #
+  # When true, the build solvates once to measure the achieved packing density,
+  # then rebuilds in a box enlarged by exactly the amount needed for the
+  # NPT-equilibrated volume to land on the design volume.  Costs one extra
+  # solvation pass at build time; removes a systematic error in the number you
+  # report in the paper.
+  precompensate_solvent_density: true
+  # Bulk water density at the simulation temperature, used as the NPT target.
+  # 993.3 kg/m^3 is experimental water at 310 K; OPC reproduces the
+  # experimental density curve to within ~0.5%.
+  reference_water_density_kg_m3: 993.3
+  # Equilibration warns if the equilibrated volume misses the design volume by
+  # more than this, and prints the rescale factor that would fix it.
+  volume_tolerance_percent: 2.0
+
+  # Minimum centre-of-mass separation enforced when the 10 copies are placed.
+  # Keeps the start state a dispersed monomer solution, so that any association
+  # observed is a RESULT and not an artefact of the initial packing.
+  min_com_separation_nm: 2.5
+  # Minimum distance between any two heavy atoms of different copies at t=0.
+  min_heavy_atom_separation_nm: 0.5
+
+# -----------------------------------------------------------------------------
+# Thermodynamic state
+# -----------------------------------------------------------------------------
+conditions:
+  # 310 K = 37 C.  Physiological, and the right choice for a biomedical paper.
+  temperature_K: 310.0
+  pressure_bar: 1.0
+  # Langevin collision frequency.  1/ps is standard and weak enough not to
+  # perturb dynamics appreciably.
+  friction_per_ps: 1.0
+  barostat_interval_steps: 25
+
+# -----------------------------------------------------------------------------
+# Numerical settings
+# -----------------------------------------------------------------------------
+integration:
+  constraints: HBonds
+  rigid_water: true
+  # Hydrogen mass repartitioning: move mass from heavy atoms into the bonded
+  # hydrogens so the fastest bond-angle motions slow down and a 4 fs step is
+  # stable (Hopkins et al., JCTC 2015).  Set hydrogen_mass_amu to 1.008 and
+  # timestep_fs to 2.0 for the conservative, no-HMR alternative.
+  hydrogen_mass_amu: 3.0
+  ewald_error_tolerance: 0.0005
+  # Long-range isotropic dispersion correction. Required for a correct density
+  # under NPT with a truncated Lennard-Jones potential.
+  use_dispersion_correction: true
+
+# -----------------------------------------------------------------------------
+# Protocol
+# -----------------------------------------------------------------------------
+minimization:
+  max_iterations: 10000
+  tolerance_kj_per_mol_nm: 10.0
+
+equilibration:
+  # Stage 1: NVT, heat 100 K -> 310 K with the solute held down, so water
+  # relaxes around a fixed solute instead of dragging it.
+  nvt:
+    length_ps: 200.0
+    timestep_fs: 2.0
+    start_temperature_K: 100.0
+    restraint_force_constant: 1000.0   # kJ/mol/nm^2 on solute heavy atoms
+
+  # Stage 2: NPT, release the restraints in stages so the box reaches its
+  # equilibrium density without shocking the solute.  Each entry is
+  # [force constant in kJ/mol/nm^2, duration in ps].
+  npt:
+    timestep_fs: 2.0
+    restraint_schedule:
+      - [1000.0, 200.0]
+      - [ 500.0, 200.0]
+      - [ 100.0, 200.0]
+      - [  10.0, 200.0]
+      - [   0.0, 1000.0]   # fully unrestrained, this is the density check window
+
+production:
+  length_ns: 10.0
+  timestep_fs: 4.0          # requires hydrogen_mass_amu: 3.0 above
+  # Trajectory frame interval.  10 ps gives 1000 frames over 10 ns: enough for
+  # contact/clustering statistics without an unmanageable file.
+  trajectory_interval_ps: 10.0
+  # Scalar log interval.  1 ps gives 10000 points for energy/density/RMSD.
+  log_interval_ps: 1.0
+  # Checkpoint interval.  On a preemptible queue, keep this small.
+  checkpoint_interval_ps: 100.0
+  # Write the full-precision state needed to restart bit-identically.
+  save_final_state: true
+
+# -----------------------------------------------------------------------------
+# Reproducibility
+# -----------------------------------------------------------------------------
+reproducibility:
+  # Master seed.  Each replicate derives its own seeds from
+  # (master_seed, replicate_index) deterministically, so replicate 3 is
+  # always the same run no matter when or where you launch it.
+  master_seed: 20260826
+  # Independent replicates.  ONE 10 ns run of 10 peptides is a single sample,
+  # not a measurement -- association is stochastic and a single trajectory has
+  # no error bar.  Three is the practical minimum for a paper; five is better.
+  n_replicates: 3
+  # Record versions, hardware, git commit and a hash of this config alongside
+  # every output, so a result can always be traced to what produced it.
+  record_provenance: true
+
+# -----------------------------------------------------------------------------
+# Analysis
+# -----------------------------------------------------------------------------
+analysis:
+  # Discard this much of production before computing equilibrium averages.
+  equilibration_discard_ns: 2.0
+  # Two heavy atoms within this distance count as a contact.
+  contact_cutoff_nm: 0.45
+  # Two peptides sharing at least this many heavy-atom contacts are called
+  # associated, for the cluster-size analysis.
+  min_contacts_for_association: 5
+  # Radius of gyration, SASA, secondary structure, contact maps, cluster-size
+  # distribution, and the RDF between peptide centres of mass.
+  rdf_max_nm: 5.0
+  rdf_bins: 200
