@@ -1,6 +1,8 @@
 # Simulation output. Trajectories are large and are regenerable from the
 # config + seeds, which is the point of recording them.
 runs/
+runs_preflight/
+runs_*/
 *.dcd
 *.chk
 *.h5

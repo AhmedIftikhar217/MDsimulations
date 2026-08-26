@@ -48,7 +48,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", required=True)
-    p.add_argument("--output-root", default="../runs")
+    p.add_argument("--output-root", default="runs",
+                   help="run outputs go here; paths are relative to the "
+                        "directory you launch from (intended: bmp2_md/)")
     p.add_argument("--replicate", type=int, default=1)
     p.add_argument("--platform", default=None)
     p.add_argument("--scale", type=float, default=1.0,
