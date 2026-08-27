@@ -1,0 +1,43 @@
+# Conda environment for the BMP-2 peptide MD pipeline.
+#
+#   conda env create -f env/environment.yml
+#   conda activate bmp2md
+#
+# On a cluster, prefer mamba/miniforge -- solving this with classic conda is
+# slow.  Pin the CUDA version to whatever the cluster's driver supports:
+#   nvidia-smi          -> "CUDA Version: 12.x" in the header
+# and match cuda-version below.  A mismatch is the single most common reason
+# OpenMM silently falls back to the CPU platform and runs 50x slower.
+name: bmp2md
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+
+  # --- simulation ---------------------------------------------------------
+  - openmm=8.*
+  - cuda-version=12.*        # must be <= the driver's CUDA version
+  - ocl-icd-system           # lets OpenMM see the OpenCL platform as a fallback
+
+  # --- system building ----------------------------------------------------
+  - pdbfixer                 # optional: only for the --from-pdb starting-structure route
+  - ambertools               # optional: tleap, for the canonical Amber build path
+  - biopython
+  - pip
+  - pip:
+      - PeptideBuilder>=1.1  # builds the extended peptide from sequence
+
+  # --- analysis -----------------------------------------------------------
+  - mdtraj
+  - mdanalysis
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - pyyaml
+
+# Verify the install actually sees the GPU before submitting a real job:
+#   python -m openmm.testInstallation
+# It must list CUDA among the platforms AND report that the CUDA and Reference
+# platforms agree on forces.  If CUDA is missing, fix that before running --
+# the pipeline will otherwise run on CPU and take weeks.
