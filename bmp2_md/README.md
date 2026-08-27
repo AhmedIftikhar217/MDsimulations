@@ -14,7 +14,10 @@ scripts/02_equilibrate.py      <- minimise, NVT heat, NPT with staged restraint 
 scripts/03_production.py       <- 10 ns NPT, checkpointed and restartable
 scripts/04_analyze.py          <- QC, structure, association, minimum-image check
 scripts/run_all.py             <- runs all four, skipping completed stages
-slurm/theia_gpu.sbatch         <- SLURM array job, one task per replicate
+slurm/theia_discover.sh        <- run on a login node: prints your SBATCH lines
+slurm/theia_preflight.sbatch   <- 1/200-length end-to-end check on a real GPU
+slurm/theia_jobcomposer.sbatch <- production array, safe under Open OnDemand
+slurm/theia_gpu.sbatch         <- same, for plain `sbatch` from bmp2_md/
 env/environment.yml            <- conda environment
 docs/methods.md                <- paper-ready Methods + derivations + caveats
 ```
@@ -67,12 +70,20 @@ python scripts/run_all.py --config config/bmp2_p24_10mer.yaml \
     --replicate 1 --platform CPU --scale 0.001
 ```
 
-Three replicates on Theia:
+Three replicates on Theia, from a login node:
 
 ```bash
-# fill in the partition/account placeholders first -- see the header comment
-sbatch slurm/theia_gpu.sbatch
+bash slurm/theia_discover.sh     # prints the partition/account lines to paste
+sbatch slurm/theia_preflight.sbatch   # ~30 min: proves it works, benchmarks the GPU
+sbatch slurm/theia_gpu.sbatch         # only after the preflight passes
 ```
+
+**Using OnDemand's Job Composer instead?** Submit
+`slurm/theia_preflight.sbatch` and then `slurm/theia_jobcomposer.sbatch`, and
+follow [`docs/theia_jobcomposer.md`](docs/theia_jobcomposer.md). Job Composer
+runs scripts from its own folder rather than from the repository, which breaks
+relative paths -- those two scripts are written for it, `theia_gpu.sbatch` is
+not.
 
 ## Outputs, per replicate
 
@@ -111,8 +122,13 @@ Extending is a one-line config change (`production.length_ns`).
 
 ## Before you run production
 
-- [ ] **Verify the peptide sequence** in `config/…yaml` against your source paper.
-      Everything downstream depends on it and it is the one thing the code cannot check.
-- [ ] Confirm `python -m openmm.testInstallation` reports CUDA.
-- [ ] Fill in the SLURM partition/account placeholders.
+- [x] **Peptide sequence verified.** `KIPKASSVPTELSAISTLYL` is residues 73-92 of
+      mature human BMP-2 (UniProt P12643), the knuckle epitope. Its net charge of
+      +1 per capped copy matches the +10 e that `00_box_size.py` derives for 10
+      copies. Still worth a glance against your source paper.
+- [ ] Create the conda env on a Theia **login** node (`conda env create -f env/environment.yml`).
+      Compute nodes generally have no internet.
+- [ ] Fill in the SLURM partition/account placeholders -- `slurm/theia_discover.sh` prints them.
+- [ ] Run `slurm/theia_preflight.sbatch` and read its `PREFLIGHT REPORT`. It
+      confirms CUDA on a real GPU node and measures the ns/day your `--time` needs.
 - [ ] Decide whether 310 K and 150 mM NaCl match your experimental conditions.
